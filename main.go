@@ -1,23 +1,34 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/justcompile/github-data-api/lib"
 )
 
-func main() {
-	client := github.NewClient(nil)
-
-	repos, _, err := client.Repositories.List(context.Background(), "justcompile", nil)
-
+func checkErr(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
 
-	for _, org := range repos {
-		fmt.Println(*org.Name)
-	}
+func main() {
+	client, err := lib.New("justcompile/github-data-api")
+
+	checkErr(err)
+
+	branch, created, err := client.GetOrCreateBranch("testing")
+
+	checkErr(err)
+
+	fmt.Printf("Branch: testing. Created: %t\n", created)
+
+	tree, err := client.MakeChanges(branch, lib.NewChange("data/test.txt", lib.ReplaceAll("line", "LiNe")))
+
+	checkErr(err)
+
+	checkErr(client.Push(branch, tree))
+
+	fmt.Println("ok!")
 }
