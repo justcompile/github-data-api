@@ -2,16 +2,24 @@ package lib
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/google/go-github/v30/github"
 	"golang.org/x/oauth2"
 )
+
+type searchResult struct {
+	path string
+	sha  string
+}
+
+type fileMatch struct {
+	path string
+	data []byte
+}
 
 type Github struct {
 	client *github.Client
@@ -38,21 +46,23 @@ func (g *Github) GetOrCreateBranch(name string) (*github.Reference, bool, error)
 }
 
 func (g *Github) MakeChanges(branch *github.Reference, changes ...*Change) (*github.Tree, error) {
-	entries := make([]github.TreeEntry, len(changes))
+	entries := make([]*github.TreeEntry, len(changes))
 
 	for i, change := range changes {
-		file, content, err := getFileContent(change.filePath)
+		blobs, err := g.getFileContent(change.replacement.GetSearchText())
 		if err != nil {
 			return nil, err
 		}
 
-		entries[i] = github.TreeEntry{
-			Path: github.String(file),
-			Type: github.String("blob"),
-			Content: github.String(
-				change.Apply(content),
-			),
-			Mode: github.String("100644"),
+		for _, blob := range blobs {
+			entries[i] = &github.TreeEntry{
+				Path: github.String(blob.path),
+				Type: github.String("blob"),
+				Content: github.String(
+					change.Apply(blob.data),
+				),
+				Mode: github.String("100644"),
+			}
 		}
 	}
 
@@ -73,7 +83,7 @@ func (g *Github) Push(branch *github.Reference, tree *github.Tree) error {
 		return err
 	}
 
-	//fmt.Printf("\n%v\n", github.Stringify(user))
+	fmt.Printf("\n%v\n", github.Stringify(user))
 
 	// Create the commit using the tree.
 	date := time.Now()
@@ -87,7 +97,7 @@ func (g *Github) Push(branch *github.Reference, tree *github.Tree) error {
 		Author:  author,
 		Message: github.String("A Message"),
 		Tree:    tree,
-		Parents: []github.Commit{*parent.Commit},
+		Parents: []*github.Commit{parent.Commit},
 	}
 
 	newCommit, _, err := g.client.Git.CreateCommit(g.ctx, g.owner, g.repo, commit)
@@ -107,32 +117,54 @@ func (g *Github) currentUser() (*github.User, error) {
 	return user, err
 }
 
+// getFileContent loads the local content of a file and return the target name
+// of the file in the target repository and its contents.
+func (g *Github) getFileContent(searchText string) ([]*fileMatch, error) {
+	results, err := g.search(searchText)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]*fileMatch, len(results))
+
+	for i, res := range results {
+		data, _, err := g.client.Git.GetBlobRaw(g.ctx, g.owner, g.repo, res.sha)
+		if err != nil {
+			return nil, err
+		}
+
+		matches[i] = &fileMatch{path: res.path, data: data}
+	}
+
+	return matches, nil
+}
+
+func (g *Github) search(text string) ([]searchResult, error) {
+	query := newQuery(text, "go", g.owner+"/"+g.repo)
+
+	results, _, err := g.client.Search.Code(g.ctx, query.InFile(), &github.SearchOptions{TextMatch: true})
+	if err != nil {
+		return nil, err
+	}
+
+	searchResults := make([]searchResult, 0)
+
+	for _, res := range results.CodeResults {
+		if *res.Repository.Name == g.repo {
+			fmt.Printf("%s\n", res.GetPath())
+			searchResults = append(searchResults, searchResult{path: res.GetPath(), sha: res.GetSHA()})
+		}
+	}
+
+	return searchResults, nil
+}
+
 func emailOrDefault(email *string) *string {
 	if email != nil {
 		return email
 	}
 
 	return github.String("test@test.com")
-}
-
-// getFileContent loads the local content of a file and return the target name
-// of the file in the target repository and its contents.
-func getFileContent(fileArg string) (targetName string, b []byte, err error) {
-	var localFile string
-	files := strings.Split(fileArg, ":")
-	switch {
-	case len(files) < 1:
-		return "", nil, errors.New("empty `-files` parameter")
-	case len(files) == 1:
-		localFile = files[0]
-		targetName = files[0]
-	default:
-		localFile = files[0]
-		targetName = files[1]
-	}
-
-	b, err = ioutil.ReadFile(localFile)
-	return targetName, b, err
 }
 
 func New(repoName string) (*Github, error) {

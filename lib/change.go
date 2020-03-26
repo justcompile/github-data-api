@@ -5,6 +5,7 @@ import (
 )
 
 type Replacement interface {
+	GetSearchText() string
 	Replace(string) (string, int)
 }
 
@@ -34,6 +35,10 @@ type simpleTextReplace struct {
 func (s *simpleTextReplace) Replace(input string) (string, int) {
 	count := strings.Count(input, s.find)
 	return strings.ReplaceAll(input, s.find, s.replace), count
+}
+
+func (s *simpleTextReplace) GetSearchText() string {
+	return s.find
 }
 
 func ReplaceAll(find, replace string) Replacement {

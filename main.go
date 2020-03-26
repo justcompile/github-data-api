@@ -14,17 +14,17 @@ func checkErr(err error) {
 }
 
 func main() {
-	client, err := lib.New("justcompile/github-data-api")
+	client, err := lib.New("FUTRLI/flux-s3-watcher")
 
 	checkErr(err)
 
-	branch, created, err := client.GetOrCreateBranch("testing")
+	branch, created, err := client.GetOrCreateBranch("master")
 
 	checkErr(err)
 
-	fmt.Printf("Branch: testing. Created: %t\n", created)
+	fmt.Printf("Branch: master. Created: %t\n", created)
 
-	tree, err := client.MakeChanges(branch, lib.NewChange("data/test.txt", lib.ReplaceAll("line", "LiNe")))
+	tree, err := client.MakeChanges(branch, lib.NewChange("data/test.txt", lib.ReplaceAll("aws.k8s.futrli.com/", "aws.k8s.futrli.com")))
 
 	checkErr(err)
 
